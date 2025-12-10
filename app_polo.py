@@ -19,14 +19,13 @@ SECRET_CODES = {
     "auriane": "prenom d'une femme chère à ton coeur",
 }
 
-# Noms de mois pour l'affichage
 MONTH_NAMES = [
     "janvier", "février", "mars", "avril", "mai", "juin",
     "juillet", "août", "septembre", "octobre", "novembre", "décembre"
 ]
 
 # ===================
-# CHARGEMENT DES DONNÉES
+# CHARGEMENT
 # ===================
 @st.cache_data
 def load_jokes(path):
@@ -37,27 +36,35 @@ def load_jokes(path):
 df = load_jokes(DATA_FILE)
 
 # ===================
-# CONFIG GLOBALE
+# CONFIG
 # ===================
-st.set_page_config(page_title="Calendrier de blagues 🎉",
-                   page_icon="🎂",
-                   layout="centered")
+st.set_page_config(page_title="Calendrier de blagues 🎉", page_icon="🎂", layout="centered")
 
 st.title("🎂 Calendrier de blagues personnalisées")
 st.write("Une blague par jour, mais **surtout** le 20 juillet... 😏")
 
 # ===================
-# GESTION DU CODE SECRET + INDICE
+# INIT ÉTAT SESSION
 # ===================
 if "authorized" not in st.session_state:
     st.session_state["authorized"] = False
 
-# On choisit un code + indice au hasard une seule fois par session
+if "fail_count" not in st.session_state:
+    st.session_state["fail_count"] = 0
+
 if "secret_code" not in st.session_state or "secret_hint" not in st.session_state:
     code_choice = random.choice(list(SECRET_CODES.keys()))
     st.session_state["secret_code"] = code_choice
     st.session_state["secret_hint"] = SECRET_CODES[code_choice]
 
+if "random_joke" not in st.session_state:
+    st.session_state["random_joke"] = None
+if "random_joke_date" not in st.session_state:
+    st.session_state["random_joke_date"] = None
+
+# ===================
+# CODE SECRET + INDICE
+# ===================
 if not st.session_state["authorized"]:
     st.subheader("🔐 Espace privé")
 
@@ -90,10 +97,11 @@ if not st.session_state["authorized"]:
         border-left: 4px solid #ffca2c;
     }}
     </style>
+
     <div class="hint-container">
         <div class="hint-wheel"></div>
         <div class="hint-text">
-            <b>Indice :</b> {st.session_state['secret_hint']}
+            <b>Indice :</b> {st.session_state["secret_hint"]}
         </div>
     </div>
     """
@@ -101,61 +109,99 @@ if not st.session_state["authorized"]:
 
     code_input = st.text_input("Entre le code secret :", type="password")
 
+    # Affichage du compteur d'échecs si > 0
+    if st.session_state["fail_count"] > 0:
+        msg = f"Tu t'es déjà trompé {st.session_state['fail_count']} fois 😏"
+        if st.session_state["fail_count"] >= 5:
+            msg += " (tu commences à m'inquiéter…)"
+        st.info(msg)
+
     if st.button("Valider le code"):
-       .expected = st.session_state["secret_code"]
-        if code_input.strip().lower() == .expected:
+        if code_input.strip().lower() == st.session_state["secret_code"]:
             st.session_state["authorized"] = True
             st.success("Code correct, bienvenue ! 🎉")
         else:
+            st.session_state["fail_count"] += 1
             st.error("Code incorrect... Essaie encore 😈")
 
     st.stop()
 
 # ===================
-# UNE FOIS LE CODE VALIDÉ : CHOIX DU JOUR
+# UNE FOIS CONNECTÉ : CHOIX DU MODE
 # ===================
-st.subheader("📅 Choisis un jour")
+st.subheader("😏 Comment veux-tu découvrir ta blague ?")
 
-# Sélecteur de mois (sans afficher d'année)
-month = st.selectbox(
-    "Mois :",
-    options=list(range(1, 13)),
-    format_func=lambda m: MONTH_NAMES[m - 1],
-    index=6  # 7e mois = juillet par défaut
+mode = st.radio(
+    "",
+    ["Par jour du calendrier", "Blague aléatoire"],
+    index=0
 )
 
-# Nombre de jours dans le mois (année bissextile 2024 mais on ne l’affiche pas)
-days_in_month = calendar.monthrange(2024, month)[1]
-
-# Sélecteur de jour
-default_day_index = min(19, days_in_month - 1)  # 20 par défaut quand possible
-day = st.selectbox(
-    "Jour :",
-    options=list(range(1, days_in_month + 1)),
-    index=default_day_index
-)
-
-# On reconstruit la date interne (année cachée)
-selected_date = date(2024, month, day)
-
-st.caption(f"Tu as choisi le {day} {MONTH_NAMES[month - 1]}.")
-
 # ===================
-# AFFICHAGE DE LA BLAGUE
+# MODE 1 : PAR JOUR DU CALENDRIER
 # ===================
-row = df[df["Date"] == selected_date]
+if mode == "Par jour du calendrier":
+    st.subheader("📅 Choisis un jour")
 
-if row.empty:
-    st.warning("Pas de blague trouvée pour ce jour. 😱")
-else:
-    joke = row["Blague"].iloc[0]
-
-    st.markdown("---")
-    st.markdown(
-        f"""
-        <div style="text-align:center; font-size: 26px; line-height: 1.5;">
-            {joke.replace('\n', '<br>')}
-        </div>
-        """,
-        unsafe_allow_html=True,
+    month = st.selectbox(
+        "Mois :",
+        options=list(range(1, 13)),
+        format_func=lambda m: MONTH_NAMES[m - 1],
+        index=6  # juillet par défaut
     )
+
+    days_in_month = calendar.monthrange(2024, month)[1]
+    default_day = min(20, days_in_month) - 1  # 20 si possible
+
+    day = st.selectbox(
+        "Jour :",
+        options=list(range(1, days_in_month + 1)),
+        index=default_day
+    )
+
+    selected_date = date(2024, month, day)
+    st.caption(f"Tu as choisi le {day} {MONTH_NAMES[month - 1]}.")
+
+    row = df[df["Date"] == selected_date]
+
+    if row.empty:
+        st.warning("Pas de blague trouvée pour ce jour 😱")
+    else:
+        joke = row["Blague"].iloc[0]
+        st.markdown("---")
+        st.markdown(
+            f"""
+            <div style="text-align:center; font-size: 26px; line-height: 1.5;">
+                {joke.replace("\n", "<br>")}
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+# ===================
+# MODE 2 : BLAGUE ALÉATOIRE
+# ===================
+else:
+    st.subheader("🎲 Blague aléatoire")
+
+    if st.button("Tire-moi une blague aléatoire 🎲") or st.session_state["random_joke"] is None:
+        random_row = df.sample(1).iloc[0]
+        st.session_state["random_joke"] = random_row["Blague"]
+        st.session_state["random_joke_date"] = random_row["Date"]
+
+    if st.session_state["random_joke"] is not None:
+        d = st.session_state["random_joke_date"]
+        # d est un objet date
+        day = d.day
+        month = d.month
+        st.caption(f"Cette blague vient du {day} {MONTH_NAMES[month - 1]}.")
+
+        st.markdown("---")
+        st.markdown(
+            f"""
+            <div style="text-align:center; font-size: 26px; line-height: 1.5;">
+                {st.session_state["random_joke"].replace("\n", "<br>")}
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
